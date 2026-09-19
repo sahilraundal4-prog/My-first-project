@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Timed Reader</title>
+<style>
+  :root {
+    --desk: #DDE3E8;
+    --paper: #FFFFFF;
+    --ink: #132033;
+    --muted: #556275;
+    --line: #B4BFC9;
+    --teal: #0F766E;
+    --teal-hi: #2CC0AE;
+    --amber: #F5B041;
+    --red: #FF6B76;
+    --serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html, body { margin: 0; height: 100%; }
+  body { background: var(--desk); color: var(--ink); font: 16px/1.5 var(--sans); }
+  button, input { font: inherit; color: inherit; }
+  button { cursor: pointer; }
+  :focus-visible { outline: 3px solid var(--teal); outline-offset: 2px; }
+
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+  /* ---------- Setup + done screens ---------- */
+  .wrap { max-width: 720px; margin: 0 auto; padding: 56px 20px 32px; }
+  h1 { font-family: var(--serif); font-weight: 600; font-size: clamp(2.1rem, 6vw, 3.4rem); line-height: 1.05; letter-spacing: -0.02em; margin: 0 0 16px; }
+  h2 { font-size: 1.05rem; margin: 32px 0 10px; }
+  .lede { font-size: 1.1rem; max-width: 56ch; color: var(--muted); margin: 0 0 32px; }
+  .hint { color: var(--muted); font-size: .9rem; margin: -4px 0 12px; }
+
+  .drop {
+    display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
+    padding: 28px; border: 2px dashed #8896A4; border-radius: 10px;
+    background: rgba(255,255,255,.5); cursor: pointer;
+  }
+  .drop strong { font-size: 1.15rem; }
+  .drop span { color: var(--muted); }
+  .drop.over, .drop:focus-within { border-color: var(--teal); background: #fff; }
+  .err { color: #B3202F; margin: 12px 0 0; font-weight: 500; }
+
+  .file { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 14px 16px; background: #fff; border: 1px solid var(--line); border-radius: 10px; }
+  .file strong { display: block; overflow-wrap: anywhere; }
+  .file span { color: var(--muted); font-size: .9rem; }
+  .link { background: none; border: 0; padding: 4px 0; color: var(--teal); font-weight: 600; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; white-space: nowrap; }
+
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .chip { padding: 8px 14px; border-radius: 8px; border: 1px solid var(--line); background: #fff; font-weight: 600; }
+  .chip[aria-pressed="true"] { background: var(--ink); color: #fff; border-color: var(--ink); }
+  .custom { width: 150px; padding: 8px 12px; border-radius: 8px; border: 1px solid var(--line); background: #fff; }
+
+  .rows { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; max-height: 340px; overflow-y: auto; padding: 2px; }
+  .row { display: flex; justify-content: space-between; align-items: center; gap: 8px; background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px 6px 12px; font-size: .92rem; }
+  .row input { width: 64px; text-align: center; padding: 4px 6px; border: 1px solid var(--line); border-radius: 6px; background: #F5F7F9; font-variant-numeric: tabular-nums; }
+
+  .startbar { position: sticky; bottom: 0; display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-top: 24px; padding: 16px 0; background: var(--desk); border-top: 1px solid var(--line); }
+  .startbar span { color: var(--muted); }
+  .startbar b { color: var(--ink); }
+  .primary { background: var(--teal); color: #fff; border: 0; border-radius: 8px; padding: 12px 22px; font-weight: 700; font-size: 1rem; }
+  .primary:hover { background: #0c635c; }
+
+  .results { list-style: none; margin: 0 0 28px; padding: 0; display: grid; gap: 6px; }
+  .results li { display: grid; grid-template-columns: 5rem 1fr auto; gap: 12px; align-items: center; background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; font-size: .95rem; }
+  .results .t { font-variant-numeric: tabular-nums; color: var(--muted); }
+  .results .tag { font-size: .85rem; font-weight: 600; }
+  .results .tag.out { color: #A4661A; }
+  .results .tag.early { color: var(--teal); }
+
+  /* ---------- Reader ---------- */
+  #reader { position: fixed; inset: 0; display: flex; flex-direction: column; background: var(--desk); }
+  .topbar { position: relative; flex: none; display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 12px; padding: 12px 18px 16px; background: var(--ink); color: #fff; }
+  .topbar :focus-visible { outline-color: #8FE3D6; }
+  .pl { font-weight: 600; font-size: .95rem; }
+  .timer { font-size: 2rem; font-weight: 700; line-height: 1; letter-spacing: .01em; font-variant-numeric: tabular-nums; min-width: 4.4ch; text-align: center; }
+  .actions { display: flex; justify-content: flex-end; gap: 8px; }
+  .ghost { background: transparent; border: 1px solid rgba(255,255,255,.35); color: #fff; border-radius: 8px; padding: 8px 12px; font-size: .9rem; }
+  .solid { background: #fff; color: var(--ink); border: 0; border-radius: 8px; padding: 8px 16px; font-weight: 700; }
+  .bar { position: absolute; left: 0; bottom: 0; height: 5px; width: 100%; background: var(--teal-hi); transition: width .2s linear; }
+  #reader.warn .bar { background: var(--amber); }
+  #reader.warn .timer { color: var(--amber); }
+  #reader.danger .bar { background: var(--red); }
+  #reader.danger .timer { color: var(--red); }
+
+  .stage { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 16px 24px; display: flex; flex-direction: column; align-items: center; outline: none; }
+  .sheet { flex: none; background: #fff; box-shadow: 0 1px 4px rgba(19,32,51,.3); }
+  .sheet canvas { display: block; }
+  .pull { flex: none; position: relative; width: min(100%, 420px); margin-top: 16px; padding: 12px 0 14px; text-align: center; color: var(--muted); font-size: .85rem; }
+  .pull i { position: absolute; left: 0; bottom: 0; height: 3px; width: 0; background: var(--teal); }
+
+  .lock { position: absolute; inset: 0; z-index: 5; display: grid; place-items: center; text-align: center; background: var(--ink); color: #fff; padding: 24px; }
+  .lock h2 { font-family: var(--serif); font-size: clamp(2.2rem, 8vw, 4rem); font-weight: 600; margin: 0 0 8px; letter-spacing: -.02em; }
+  .lock p { margin: 0; color: #B9C4D0; font-size: 1.1rem; }
+
+  @media (max-width: 600px) {
+    .wrap { padding-top: 36px; }
+    .topbar { padding: 10px 12px 14px; gap: 8px; }
+    .timer { font-size: 1.6rem; }
+    .pl { font-size: .85rem; }
+    #fit { display: none; }
+    .stage { padding: 8px; }
+    .results li { grid-template-columns: 4rem 1fr; }
+    .results .tag { grid-column: 1 / -1; }
+  }
+</style>
+</head>
+<body>
+
+<input id="file" class="sr" type="file" accept="application/pdf,.pdf">
+
+<!-- Setup -->
+<main id="setup" class="wrap">
+  <h1>Read one page at a time.</h1>
+  <p class="lede">Every page gets a time limit. Move forward whenever you're ready. When time runs out, the page locks and the next one opens. You can't go back.</p>
+
+  <div id="picker">
+    <label class="drop" id="drop" for="file">
+      <strong>Choose a PDF</strong>
+      <span>or drop one here</span>
+    </label>
+  </div>
+  <p id="err" class="err" role="alert" hidden></p>
+
+  <section id="config" hidden>
+    <div class="file">
+      <div><strong id="fname"></strong><span id="fmeta"></span></div>
+      <label class="link" for="file">Choose another</label>
+    </div>
+
+    <h2>Time for every page</h2>
+    <div class="chips" id="chips">
+      <button class="chip" data-sec="30" aria-pressed="false">30 s</button>
+      <button class="chip" data-sec="60" aria-pressed="false">1 min</button>
+      <button class="chip" data-sec="180" aria-pressed="false">3 min</button>
+      <button class="chip" data-sec="300" aria-pressed="false">5 min</button>
+      <input id="custom" class="custom" type="text" placeholder="Custom, e.g. 2:30" aria-label="Set every page to a custom time">
+    </div>
+
+    <h2>Time for each page</h2>
+    <p class="hint">Type minutes or m:ss. For example, 3 or 1:30.</p>
+    <div class="rows" id="rows"></div>
+
+    <div class="startbar">
+      <span>Total time: <b id="total"></b></span>
+      <button class="primary" id="start">Start reading</button>
+    </div>
+  </section>
+</main>
+
+<!-- Reader -->
+<section id="reader" hidden>
+  <header class="topbar">
+    <div class="pl" id="pageLabel"></div>
+    <div class="timer" id="timer" role="timer" aria-live="off">0:00</div>
+    <div class="actions">
+      <button class="ghost" id="fit"></button>
+      <button class="solid" id="next">Next page</button>
+    </div>
+    <div class="bar" id="bar"></div>
+  </header>
+  <div class="stage" id="stage" role="region" aria-label="Current page" tabindex="0">
+    <div class="sheet" id="sheet"><canvas id="canvas"></canvas></div>
+    <div class="pull" id="pull"><span id="pullText">Keep scrolling to go to the next page</span><i id="pullFill"></i></div>
+  </div>
+  <div class="lock" id="lock" hidden>
+    <div><h2>Time's up</h2><p id="lockMsg"></p></div>
+  </div>
+</section>
+
+<!-- Done -->
+<main id="done" class="wrap" hidden>
+  <h1>You've reached the end.</h1>
+  <p class="lede" id="doneSummary"></p>
+  <ol class="results" id="results"></ol>
+  <button class="primary" id="again">Read another PDF</button>
+</main>
+
+<script src="pdf.min.js"></script>
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const setup = $('setup'), reader = $('reader'), done = $('done');
+  const stage = $('stage'), sheet = $('sheet'), canvas = $('canvas'), ctx = canvas.getContext('2d');
+
+  const MIN = 5, MAX = 10800;
+  let pdf = null, numPages = 0, times = [], spent = [], timedOut = [];
+  let current = 0, deadline = 0, startedAt = 0, tick = null;
+  let locked = true, running = false, ignoreUntil = 0, bottomSince = 0, wasBottom = false;
+  let renderTask = null, renderToken = 0;
+  let fit = window.innerWidth >= 900 ? 'page' : 'width';
+  let pullVal = 0, acc = 0, accT = null;
+
+  if (typeof pdfjsLib === 'undefined') {
+    showError('The PDF engine could not load. Check your connection and reload.');
+  } else {
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'pdf.worker.min.js';
+  }
+
+  /* ---------- helpers ---------- */
+  function fmt(s) { s = Math.max(0, Math.round(s)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); }
+  function human(s) {
+    const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), r = s % 60, p = [];
+    if (h) p.push(h + ' h'); if (m) p.push(m + ' min'); if (r || !p.length) p.push(r + ' s');
+    return p.join(' ');
+  }
+  function parseTime(v) {
+    v = String(v).trim();
+    if (!v) return null;
+    let s;
+    const m = v.match(/^(\d+):([0-5]?\d)$/);
+    if (m) s = (+m[1]) * 60 + (+m[2]);
+    else if (/^(\d+\.?\d*|\.\d+)$/.test(v)) s = Math.round(parseFloat(v) * 60);
+    else return null;
+    return Math.min(MAX, Math.max(MIN, s));
+  }
+  function showError(msg) { const e = $('err'); e.textContent = msg; e.hidden = !msg; }
+
+  /* ---------- setup ---------- */
+  const fileInput = $('file'), drop = $('drop');
+  fileInput.addEventListener('change', () => { if (fileInput.files[0]) handleFile(fileInput.files[0]); });
+  ['dragenter', 'dragover'].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.add('over'); }));
+  ['dragleave', 'drop'].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.remove('over'); }));
+  drop.addEventListener('drop', e => { const f = e.dataTransfer.files[0]; if (f) handleFile(f); });
+
+  async function handleFile(file) {
+    showError('');
+    if (typeof pdfjsLib === 'undefined') return showError('The PDF engine could not load. Check your connection and reload.');
+    if (!(file.type === 'application/pdf' || /\.pdf$/i.test(file.name))) return showError('That file is not a PDF. Choose a file that ends in .pdf.');
+    $('drop').querySelector('strong').textContent = 'Opening…';
+    try {
+      const buf = await file.arrayBuffer();
+      const doc = await pdfjsLib.getDocument({ data: new Uint8Array(buf) }).promise;
+      if (pdf) { try { pdf.destroy(); } catch (e) {} }
+      pdf = doc; numPages = doc.numPages;
+      times = new Array(numPages).fill(60);
+      $('fname').textContent = file.name;
+      $('fmeta').textContent = numPages + (numPages === 1 ? ' page' : ' pages');
+      buildRows();
+      $('picker').hidden = true;
+      $('config').hidden = false;
+    } catch (e) {
+      showError("Couldn't open this PDF. Check that it isn't damaged or password protected.");
+    } finally {
+      $('drop').querySelector('strong').textContent = 'Choose a PDF';
+      fileInput.value = '';
+    }
+  }
+
+  const rowInputs = [];
+  function buildRows() {
+    const box = $('rows'); box.innerHTML = ''; rowInputs.length = 0;
+    times.forEach((t, i) => {
+      const row = document.createElement('label'); row.className = 'row';
+      const name = document.createElement('span'); name.textContent = 'Page ' + (i + 1);
+      const inp = document.createElement('input'); inp.type = 'text'; inp.value = fmt(t);
+      inp.addEventListener('change', () => {
+        const v = parseTime(inp.value);
+        if (v !== null) times[i] = v;
+        inp.value = fmt(times[i]); updateTotals();
+      });
+      inp.addEventListener('keydown', e => { if (e.key === 'Enter') inp.blur(); });
+      row.append(name, inp); box.appendChild(row); rowInputs.push(inp);
+    });
+    updateTotals();
+  }
+  function setAll(sec) { times.fill(sec); rowInputs.forEach(i => i.value = fmt(sec)); updateTotals(); }
+  function updateTotals() {
+    $('total').textContent = human(times.reduce((a, b) => a + b, 0));
+    const same = times.every(t => t === times[0]);
+    document.querySelectorAll('.chip').forEach(c => c.setAttribute('aria-pressed', same && +c.dataset.sec === times[0] ? 'true' : 'false'));
+  }
+  document.querySelectorAll('.chip').forEach(c => c.addEventListener('click', () => { setAll(+c.dataset.sec); $('custom').value = ''; }));
+  $('custom').addEventListener('change', e => {
+    const v = parseTime(e.target.value);
+    if (v === null) { e.target.value = ''; return; }
+    setAll(v); e.target.value = fmt(v);
+  });
+  $('custom').addEventListener('keydown', e => { if (e.key === 'Enter') e.target.blur(); });
+
+  $('start').addEventListener('click', () => {
+    spent = new Array(numPages).fill(0); timedOut = new Array(numPages).fill(false);
+    setup.hidden = true; done.hidden = true; reader.hidden = false; running = true;
+    updateFitLabel();
+    openPage(0);
+  });
+
+  /* ---------- reader ---------- */
+  function updateFitLabel() { $('fit').textContent = fit === 'page' ? 'Fit width' : 'Fit page'; }
+  $('fit').addEventListener('click', () => { fit = fit === 'page' ? 'width' : 'page'; updateFitLabel(); stage.scrollTop = 0; renderCurrent(); });
+
+  async function renderCurrent() {
+    const my = ++renderToken;
+    if (renderTask) { try { renderTask.cancel(); } catch (e) {} }
+    const page = await pdf.getPage(current + 1);
+    if (my !== renderToken) return;
+    const base = page.getViewport({ scale: 1 });
+    const cs = getComputedStyle(stage);
+    const padX = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight);
+    const padY = parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
+    const availW = Math.min(stage.clientWidth - padX, 960);
+    const hintH = $('pull').offsetHeight + 16;
+    const availH = Math.max(200, stage.clientHeight - padY - hintH);
+    let scale = availW / base.width;
+    if (fit === 'page') scale = Math.min(scale, availH / base.height);
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const vp = page.getViewport({ scale: scale * dpr });
+    canvas.width = Math.floor(vp.width); canvas.height = Math.floor(vp.height);
+    canvas.style.width = Math.floor(vp.width / dpr) + 'px';
+    canvas.style.height = Math.floor(vp.height / dpr) + 'px';
+    const task = page.render({ canvasContext: ctx, viewport: vp });
+    renderTask = task;
+    try { await task.promise; } catch (e) { if (e && e.name === 'RenderingCancelledException') return; throw e; }
+    if (my === renderToken) sheet.style.visibility = 'visible';
+  }
+
+  async function openPage(i) {
+    current = i; locked = true; clearInterval(tick);
+    sheet.style.visibility = 'hidden';
+    $('pageLabel').textContent = 'Page ' + (i + 1) + ' of ' + numPages;
+    const last = i === numPages - 1;
+    $('next').textContent = last ? 'Finish' : 'Next page';
+    $('pullText').textContent = last ? 'Keep scrolling to finish' : 'Keep scrolling to go to the next page';
+    $('timer').textContent = fmt(times[i]);
+    reader.classList.remove('warn', 'danger');
+    const bar = $('bar'); bar.style.transition = 'none'; bar.style.width = '100%'; void bar.offsetWidth; bar.style.transition = '';
+    stage.scrollTop = 0; setPull(0); acc = 0;
+    try { await renderCurrent(); } catch (e) { console.error(e); }
+    if (!running || current !== i) return;
+    stage.scrollTop = 0;
+    const now = Date.now();
+    ignoreUntil = now + 700; bottomSince = now; wasBottom = atBottom();
+    startedAt = now; deadline = now + times[i] * 1000;
+    locked = false;
+    tick = setInterval(update, 200); update();
+    stage.focus({ preventScroll: true });
+  }
+
+  function update() {
+    const total = times[current] * 1000;
+    const rem = deadline - Date.now();
+    $('timer').textContent = fmt(Math.ceil(Math.max(0, rem) / 1000));
+    $('bar').style.width = Math.max(0, rem / total * 100) + '%';
+    reader.classList.toggle('danger', rem <= 10000);
+    reader.classList.toggle('warn', rem > 10000 && rem <= total * 0.25);
+    if (rem <= 0) advance(true);
+  }
+
+  function advance(auto) {
+    if (locked) return;
+    locked = true; clearInterval(tick);
+    spent[current] = Math.min(times[current], Math.round((Date.now() - startedAt) / 1000));
+    timedOut[current] = auto;
+    const last = current === numPages - 1;
+    if (auto) {
+      $('lockMsg').textContent = 'Page ' + (current + 1) + ' is locked. ' + (last ? 'That was the last page.' : 'Opening page ' + (current + 2) + '…');
+      $('lock').hidden = false;
+      setTimeout(() => {
+        $('lock').hidden = true;
+        last ? finish() : openPage(current + 1);
+      }, 1400);
+    } else {
+      last ? finish() : openPage(current + 1);
+    }
+  }
+  $('next').addEventListener('click', () => advance(false));
+
+  function finish() {
+    running = false; clearInterval(tick);
+    if (renderTask) { try { renderTask.cancel(); } catch (e) {} }
+    canvas.width = canvas.height = 1;
+    reader.hidden = true; done.hidden = false;
+    const total = spent.reduce((a, b) => a + b, 0);
+    $('doneSummary').textContent = 'You read ' + numPages + (numPages === 1 ? ' page' : ' pages') + ' in ' + human(total) + '.';
+    const list = $('results'); list.innerHTML = '';
+    times.forEach((t, i) => {
+      const li = document.createElement('li');
+      li.innerHTML = '<span>Page ' + (i + 1) + '</span><span class="t">' + fmt(spent[i]) + ' of ' + fmt(t) + '</span>' +
+        '<span class="tag ' + (timedOut[i] ? 'out' : 'early') + '">' + (timedOut[i] ? 'Time ran out' : 'Moved on') + '</span>';
+      list.appendChild(li);
+    });
+    window.scrollTo(0, 0);
+  }
+
+  $('again').addEventListener('click', () => {
+    if (pdf) { try { pdf.destroy(); } catch (e) {} pdf = null; }
+    done.hidden = true; setup.hidden = false;
+    $('config').hidden = true; $('picker').hidden = false; showError('');
+  });
+
+  /* ---------- forward-only navigation ---------- */
+  function atBottom() { return stage.scrollTop + stage.clientHeight >= stage.scrollHeight - 2; }
+  function setPull(p) { pullVal = p; $('pullFill').style.width = Math.min(1, Math.max(0, p)) * 100 + '%'; }
+
+  stage.addEventListener('scroll', () => {
+    const b = atBottom();
+    if (b && !wasBottom) bottomSince = Date.now();
+    wasBottom = b;
+  }, { passive: true });
+
+  stage.addEventListener('wheel', e => {
+    if (locked || Date.now() < ignoreUntil) return;
+    const dy = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
+    if (atBottom() && dy > 0 && Date.now() - bottomSince > 350) {
+      acc += dy;
+      clearTimeout(accT); accT = setTimeout(() => { acc = 0; setPull(0); }, 350);
+      setPull(acc / 240);
+      if (acc >= 240) { acc = 0; setPull(0); advance(false); }
+    } else if (dy !== 0) { acc = 0; setPull(0); }
+  }, { passive: true });
+
+  let touchY = null;
+  stage.addEventListener('touchstart', e => { touchY = atBottom() ? e.touches[0].clientY : null; }, { passive: true });
+  stage.addEventListener('touchmove', e => {
+    if (touchY === null || locked || Date.now() < ignoreUntil) return;
+    if (!atBottom()) { touchY = null; setPull(0); return; }
+    setPull((touchY - e.touches[0].clientY) / 90);
+  }, { passive: true });
+  stage.addEventListener('touchend', () => {
+    const ready = touchY !== null && pullVal >= 1;
+    touchY = null; setPull(0);
+    if (ready && !locked && Date.now() >= ignoreUntil) advance(false);
+  });
+
+  document.addEventListener('keydown', e => {
+    if (reader.hidden || locked || Date.now() < ignoreUntil) return;
+    if (e.target.closest && e.target.closest('button, input')) return;
+    if (['ArrowDown', 'PageDown', ' ', 'End'].includes(e.key) && atBottom()) {
+      e.preventDefault(); advance(false);
+    }
+  });
+
+  /* ---------- misc ---------- */
+  let rt;
+  window.addEventListener('resize', () => {
+    clearTimeout(rt);
+    rt = setTimeout(() => { if (running && pdf) renderCurrent().catch(() => {}); }, 150);
+  });
+  window.addEventListener('beforeunload', e => { if (running) { e.preventDefault(); e.returnValue = ''; } });
+})();
+</script>
+</body>
+</html>
